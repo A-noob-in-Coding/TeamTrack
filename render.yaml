@@ -1,0 +1,27 @@
+services:
+  # Backend API Service
+  - type: web
+    name: team-manager-backend
+    env: node
+    plan: free
+    buildCommand: cd Backend && npm install
+    startCommand: cd Backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+    healthCheckPath: /
+    
+  # Frontend Service (optional - you can also serve it from backend)
+  - type: web
+    name: team-manager-frontend
+    env: static
+    plan: free
+    buildCommand: cd Frontend && npm install && npm run build
+    staticPublishPath: Frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://team-manager-backend.onrender.com 

@@ -6,6 +6,8 @@ import passport from 'passport';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import pkg from 'pg';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import authRouter from './Routes/authRoute.js';
 import teamRouter from './Routes/teamRoute.js';
 import taskRouter from './Routes/taskRoute.js';
@@ -22,9 +24,15 @@ const pgSession = connectPgSimple(session);
 
 const app = express();
 
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-frontend-app.onrender.com', 'http://localhost:5173'] 
+    : 'http://localhost:5173',
   credentials: true,
 }));
 app.use(express.json());
@@ -39,7 +47,7 @@ app.use(session({
   cookie: {
     maxAge: 1000 * 60 * 60 * 24,
     httpOnly: true,
-    secure: false, // Set true if HTTPS
+    secure: process.env.NODE_ENV === 'production', // Set true if HTTPS
   },
 }));
 
@@ -56,6 +64,17 @@ app.use('/api/teams', teamRouter)
 app.use('/api/tasks', taskRouter)
 app.use('/api/membership', membershipRouter)
 app.use('/api/user', userRouter)
+
+// Serve static files from the React app in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../Frontend/dist')));
+  
+  // Handle React routing, return all requests to React app
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../Frontend/dist', 'index.html'));
+  });
+}
+
 // Test route
 app.get('/', (req, res) => {
   res.send('Server is up! 🔥');
