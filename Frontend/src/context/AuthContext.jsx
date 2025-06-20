@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import api from '../utils/api';
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -16,131 +17,100 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Debug log to check provider state
-  useEffect(() => {
-    fetchUserProfile();
-  }, []);
+  const checkAuth = useCallback(async () => {
+    if (user) {
+      setLoading(false);
+      return;
+    }
 
-  const fetchUserProfile = async () => {
     try {
-      const res = await fetch('/api/auth/profile');
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
+      const res = await api.get('/api/auth/profile');
+      if (res.status === 200) {
+        setUser(res.data);
       } else {
         setUser(null);
-        if (!window.location.pathname.match(/\/(login|register|forgot-password)/)) {
-          navigate('/login');
-        }
       }
     } catch (err) {
       setUser(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
-  const login = async (email, password) => {
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  const login = async (credentials) => {
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Login failed');
+      const res = await api.post('/api/auth/login', credentials);
+      if (res.status === 200) {
+        setUser(res.data);
+        toast.success('Logged in successfully!');
+        navigate(location.state?.from?.pathname || '/');
       }
-      setUser(data.user);
-      toast.success('Login successful!');
-      navigate('/dashboard');
-      return { success: true };
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Login failed');
+      throw new Error('Login failed');
     }
   };
 
   const logout = async () => {
     try {
-      const res = await fetch('/api/auth/logout', {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Logout failed');
-      }
+      await api.post('/api/auth/logout');
       setUser(null);
-      toast.success(data.message || 'Logged out successfully!');
+      toast.success('Logged out successfully!');
       navigate('/login');
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.response?.data?.message || 'Logout failed');
     }
   };
 
-  const updateProfile = async (profileData) => {
+  const updateUser = async (userData) => {
+    setLoading(true);
     try {
-      const payload = {
-        firstName: profileData.firstname,
-        lastName: profileData.lastname,
-        bio: profileData.bio,
-        email: profileData.email,
-      };
-      const res = await fetch('/api/auth/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Failed to update profile');
+      const res = await api.put('/api/auth/profile', userData);
+      if (res.status === 200) {
+        setUser(res.data);
+        toast.success('Profile updated successfully!');
       }
-      setUser(data.user);
-      toast.success('Profile updated successfully!');
-      return { success: true };
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Update failed');
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const changePassword = async (currentPassword, newPassword, confirmPassword) => {
+  const changePassword = async (passwords) => {
+    setLoading(true);
     try {
-      const res = await fetch('/api/auth/change-password', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Failed to change password');
+      const res = await api.put('/api/auth/change-password', passwords);
+      if (res.status === 200) {
+        toast.success('Password changed successfully!');
       }
-      toast.success('Password changed successfully!');
-      return { success: true };
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Password change failed');
+      throw new Error('Password change failed');
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
   const value = {
     user,
     loading,
     login,
     logout,
-    updateProfile,
+    updateUser,
     changePassword,
-    refreshUser: fetchUserProfile,
+    refreshUser: checkAuth,
   };
-
-  if (loading) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>;
-  }
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

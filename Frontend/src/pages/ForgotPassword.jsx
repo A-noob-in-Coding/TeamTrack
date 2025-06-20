@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import api from '../utils/api';
 
 const ForgotPassword = () => {
   const [email, setEmail] = useState("");
@@ -34,18 +36,11 @@ const ForgotPassword = () => {
     setIsLoading(true);
     setMessage('');
     try {
-      const response = await fetch('/api/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.message || 'Something went wrong');
-      }
-      setMessage(data.message);
-    } catch (error) {
-      setEmailError(error.message);
+      const response = await api.post('/api/auth/forgot-password', { email });
+      toast.success(response.data.message || 'Password reset link sent! Check your email.');
+      navigate('/login');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to send reset link.');
     } finally {
       setIsLoading(false);
     }

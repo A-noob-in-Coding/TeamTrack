@@ -1,8 +1,10 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useAuth } from './AuthContext';
+import AppLoadingContext from './AppLoadingContext';
+import api from '../utils/api';
 
-const TeamsContext = createContext(null);
+export const TeamsContext = createContext(null);
 
 export const useTeams = () => useContext(TeamsContext);
 
@@ -11,46 +13,36 @@ export const TeamsProvider = ({ children }) => {
   const [teams, setTeams] = useState([]);
   const [teamDetails, setTeamDetails] = useState({});
   const [loading, setLoading] = useState(false);
+  const { setAppLoading } = useContext(AppLoadingContext);
 
   const fetchAllTeamsAndDetails = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      // Fetch only the teams the user is a member of
-      const teamsRes = await fetch('/api/teams?myTeams=true');
-      if (!teamsRes.ok) throw new Error('Failed to fetch teams');
+      const res = await api.get('/api/teams?myTeams=true');
+      setTeams(res.data);
 
-      const teamsResponse = await teamsRes.json();
-      if (!teamsResponse.success || !teamsResponse.data) {
-        throw new Error(teamsResponse.message || 'Could not process teams data');
-      }
-      
-      const userTeams = teamsResponse.data;
-      setTeams(userTeams);
-
-      if (userTeams.length > 0) {
-        // Fetch details for each team
-        const detailsPromises = userTeams.map(team =>
-          fetch(`/api/teams/${team.teamid}`).then(res => res.ok ? res.json() : Promise.reject(`Failed for team ${team.teamid}`))
+      if (res.data.length > 0) {
+        const detailsPromises = res.data.map(team =>
+          api.get(`/api/teams/${team.teamid}`).then(res => res.data)
         );
         const detailsResults = await Promise.allSettled(detailsPromises);
         
         const newDetails = {};
         detailsResults.forEach((result, index) => {
-          const currentTeam = userTeams[index];
+          const currentTeam = res.data[index];
           if (result.status === 'fulfilled' && result.value.success && result.value.data) {
             newDetails[currentTeam.teamid] = result.value.data;
           } else {
             toast.error(`Could not load details for team ${currentTeam.teamname || currentTeam.teamid}`);
-            // Provide a fallback structure to prevent UI crashes
             newDetails[currentTeam.teamid] = { members: [], memberCount: 0, taskStats: { total: 0 } };
           }
         });
         setTeamDetails(prev => ({ ...prev, ...newDetails }));
       }
     } catch (err) {
-      toast.error(err.message);
-      setTeams([]); // Clear teams on error
+      toast.error(err.response?.data?.message || 'Failed to fetch teams');
+      setTeams([]);
     } finally {
       setLoading(false);
     }
@@ -61,62 +53,49 @@ export const TeamsProvider = ({ children }) => {
   }, [fetchAllTeamsAndDetails]);
 
   const fetchTeamDetails = useCallback(async (teamid) => {
+    if (!user) return;
+    setAppLoading(true);
     try {
-      const res = await fetch(`/api/teams/${teamid}`);
-      if (!res.ok) throw new Error('Could not fetch team details');
-      const data = await res.json();
-      setTeamDetails(prev => ({ ...prev, [teamid]: data }));
+      const res = await api.get(`/api/teams/${teamid}`);
+      setTeamDetails(prev => ({ ...prev, [teamid]: res.data }));
+      return res.data;
     } catch (err) {
-      toast.error(err.message);
+      toast.error(err.response?.data?.message || 'Failed to fetch team details');
+    } finally {
+      setAppLoading(false);
     }
-  }, []);
+  }, [user, setAppLoading]);
 
   const addTeamMember = async (teamid, userEmail, role) => {
     try {
-      const res = await fetch(`/api/membership/add`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId: teamid, userEmail, role }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Server error');
+      const res = await api.post(`/api/membership/add`, { teamId: teamid, userEmail, role });
+      toast.success(res.data.message);
       await fetchTeamDetails(teamid);
       return { success: true };
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.response?.data?.message || 'Failed to add member' };
     }
   };
 
   const removeTeamMember = async (teamid, userid) => {
     try {
-      const res = await fetch(`/api/membership/remove`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teamId: teamid, userId: userid }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Server error');
-      await fetchTeamDetails(teamid); // Refresh details
+      const res = await api.delete(`/api/membership/remove`, { data: { teamId: teamid, userId: userid } });
+      toast.success(res.data.message);
+      await fetchTeamDetails(teamid);
       return { success: true };
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.response?.data?.message || 'Failed to remove member' };
     }
   };
 
   const leaveTeam = async (teamid) => {
     try {
-      const res = await fetch(`/api/membership/leave/${teamid}`, {
-        method: 'DELETE',
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to leave team');
-      
-      // Refetch all teams
+      const res = await api.post(`/api/membership/leave/${teamid}`);
+      toast.success(res.data.message);
       await fetchAllTeamsAndDetails();
-      
       return { success: true };
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: err.response?.data?.message || 'Failed to leave team' };
     }
   };
 

@@ -1,29 +1,33 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useContext } from 'react';
 import { useParams } from 'react-router-dom';
+import { useTeams } from '../context/TeamsContext';
+import { AppLoadingContext } from '../context/AppLoadingContext.jsx';
+import api from '../utils/api';
 
 const ManageTeam = () => {
   const { id } = useParams();
   const [team, setTeam] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { setAppLoading } = useContext(AppLoadingContext);
 
   useEffect(() => {
-    const fetchTeam = async () => {
-      setLoading(true);
-      setError(null);
+    const getTeamDetails = async () => {
+      setAppLoading(true);
       try {
-        const res = await fetch(`http://localhost:5000/api/teams/${id}`, { credentials: 'include' });
-        const data = await res.json();
-        if (!res.ok || !data.data) throw new Error(data.message || 'Failed to fetch team');
-        setTeam(data.data);
+        const res = await api.get(`/api/teams/${id}`);
+        setTeam(res.data);
       } catch (err) {
-        setError(err.message);
+        console.error("Failed to fetch team details", err);
       } finally {
-        setLoading(false);
+        setAppLoading(false);
       }
     };
-    fetchTeam();
-  }, [id]);
+
+    if (id) {
+      getTeamDetails();
+    }
+  }, [id, setAppLoading]);
 
   if (loading) return <div className="text-center text-gray-500 py-10">Loading team management...</div>;
   if (error) return <div className="text-center text-red-500 py-10">{error}</div>;

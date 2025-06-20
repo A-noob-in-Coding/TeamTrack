@@ -2,8 +2,9 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { toast } from 'react-hot-toast';
 import { useAuth } from './AuthContext';
 import { useTeams } from './TeamsContext';
+import api from '../utils/api';
 
-const TasksContext = createContext(null);
+export const TasksContext = createContext(null);
 
 export const useTasks = () => {
   const context = useContext(TasksContext);
@@ -19,172 +20,87 @@ export const TasksProvider = ({ children }) => {
   const { user } = useAuth();
   const { teams } = useTeams();
 
+  const fetchTasksForTeam = useCallback(async (teamId) => {
+    if (!user) return;
+    try {
+      const res = await api.get(`/api/tasks?teamid=${teamId}`);
+      setTasks(prev => ({ ...prev, [teamId]: res.data }));
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to fetch tasks');
+      setTasks(prev => ({ ...prev, [teamId]: [] })); // Set empty on error
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user && teams && teams.length > 0) {
-      fetchAllTasksForTeams(teams);
+      teams.forEach(team => {
+        if (!tasks[team.teamid]) { // Fetch only if not already fetched
+          fetchTasksForTeam(team.teamid);
+        }
+      });
     } else {
       setTasks({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, teams]);
+  }, [user, teams, fetchTasksForTeam]);
 
-  const fetchAllTasksForTeams = useCallback(async (teams) => {
-    if (!user || !teams || teams.length === 0) return;
-    setLoading(true);
+  const createTask = async (taskData) => {
     try {
-      const results = await Promise.all(
-        teams.map(async (team) => {
-          try {
-            const res = await fetch(`http://localhost:5000/api/tasks?teamid=${team.teamid}`, {
-              credentials: 'include',
-            });
-            if (!res.ok) return { teamid: team.teamid, data: [] };
-            const data = await res.json();
-            if (!data.success) return { teamid: team.teamid, data: [] };
-            return { teamid: team.teamid, data: data.data || [] };
-          } catch {
-            return { teamid: team.teamid, data: [] };
-          }
-        })
-      );
-      const tasksObj = {};
-      results.forEach(({ teamid, data }) => {
-        tasksObj[teamid] = data;
-      });
-      setTasks(tasksObj);
-    } catch (err) {
-      toast.error('Failed to fetch all tasks');
-      setTasks({});
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  const fetchTeamTasks = useCallback(async (teamId) => {
-    if (!user || !teamId) return;
-    try {
-      const res = await fetch(`http://localhost:5000/api/tasks?teamid=${teamId}`, {
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        // If 404 or any error, treat as no tasks for this team
-        setTasks(prev => ({ ...prev, [teamId]: [] }));
-        return [];
-      }
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message || 'Failed to fetch tasks');
-      setTasks(prev => ({ ...prev, [teamId]: data.data || [] }));
-      return data.data;
-    } catch (err) {
-      toast.error(err.message);
-      setTasks(prev => ({ ...prev, [teamId]: [] }));
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
-
-  const createTask = async (teamid, taskData) => {
-    try {
-      const res = await fetch('http://localhost:5000/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ ...taskData, teamid }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to create task');
-      await fetchTeamTasks(teamid);
+      const res = await api.post('/api/tasks', taskData);
       toast.success('Task created successfully!');
-      return { success: true, task: data.data };
+      fetchTasksForTeam(taskData.teamid); // Refresh tasks for the team
+      return res.data;
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Failed to create task');
+      throw new Error('Failed to create task');
     }
   };
 
-  const updateTask = async (taskId, teamId, updates) => {
+  const updateTask = async (taskId, taskData) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/tasks/${taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(updates),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to update task');
-      await fetchTeamTasks(teamId);
+      const res = await api.put(`/api/tasks/${taskId}`, taskData);
       toast.success('Task updated successfully!');
-      return { success: true, task: data.data };
+      fetchTasksForTeam(taskData.teamid); // Refresh tasks for the team
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Failed to update task');
     }
   };
 
   const deleteTask = async (taskId, teamId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/tasks/${taskId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delete task');
-      setTasks(prev => ({
-        ...prev,
-        [teamId]: prev[teamId].filter(task => task.taskid !== taskId)
-      }));
+      await api.delete(`/api/tasks/${taskId}`);
       toast.success('Task deleted successfully!');
-      return { success: true };
+      fetchTasksForTeam(teamId); // Refresh tasks for the team
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Failed to delete task');
     }
   };
 
-  const assignTask = async (taskId, teamId, userId) => {
+  const assignTask = async (taskId, userId, teamId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/tasks/${taskId}/assign`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ userId }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to assign task');
-      await fetchTeamTasks(teamId);
+      await api.put(`/api/tasks/${taskId}/assign`, { userId });
       toast.success('Task assigned successfully!');
-      return { success: true };
+      fetchTasksForTeam(teamId); // Refresh tasks for the team
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Failed to assign task');
     }
   };
 
-  const updateTaskStatus = async (taskId, teamId, status) => {
+  const updateTaskStatus = async (taskId, status, teamId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/tasks/${taskId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to update task status');
-      await fetchTeamTasks(teamId);
-      toast.success('Task status updated successfully!');
-      return { success: true };
+      await api.put(`/api/tasks/${taskId}/status`, { status });
+      toast.success('Task status updated!');
+      fetchTasksForTeam(teamId); // Refresh tasks for the team
     } catch (err) {
-      toast.error(err.message);
-      return { success: false, error: err.message };
+      toast.error(err.response?.data?.message || 'Failed to update status');
     }
   };
 
   const value = {
     tasks,
     loading,
-    fetchAllTasksForTeams,
-    fetchTeamTasks,
+    fetchAllTasksForTeams: fetchTasksForTeam,
+    fetchTeamTasks: fetchTasksForTeam,
     createTask,
     updateTask,
     deleteTask,

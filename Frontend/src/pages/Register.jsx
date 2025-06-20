@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
+import api from '../utils/api';
 
 const Register = () => {
   const [firstName, setFirstName] = useState("");
@@ -55,47 +57,17 @@ const Register = () => {
     }
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:5000/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          email,
-          password,
-          firstName,
-          lastName,
-          bio,
-        }),
+      const res = await api.post("/api/auth/register", {
+        email,
+        password,
+        firstName,
+        lastName,
+        bio,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.details && Array.isArray(data.details)) {
-          // Joi validation errors
-          const errors = {};
-          data.details.forEach((err) => {
-            if (err.path && err.path[0]) {
-              errors[err.path[0]] = err.message;
-              toast.error(err.message);
-            }
-          });
-          setFieldErrors(errors);
-        } else if (data.message) {
-          toast.error(data.message);
-        } else {
-          toast.error("Registration failed");
-        }
-        setFormError(data.message || "Registration failed");
-        setIsLoading(false);
-        return;
-      }
-      // Registration successful
-      toast.success("Registration successful!");
+      toast.success(res.data.message || "Registration successful!");
       navigate("/dashboard");
     } catch (err) {
-      setFormError("Registration failed. Please try again later.");
-      toast.error("Registration failed. Please try again later.");
+      toast.error(err.response?.data?.message || 'Registration failed');
     } finally {
       setIsLoading(false);
     }
